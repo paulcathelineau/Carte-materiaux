@@ -26,15 +26,52 @@ ellipse_stroke_dom  <- 1.1
 # Style
 base_text_size      <- 11
 label_size_domain   <- 6.0     # taille texte des Domain
-fill_alpha_domain   <- 0.4   # opacité des Domain remplis
+fill_alpha_domain   <- 0.4     # opacité des Domain remplis
 pad_mult            <- 0.10    # marge en log (10%)
+
+################################################################################
+# PALETTE ASHBY (couleurs par Domain)
+################################################################################
+# Clés = noms de Domain dans tes données. Adapte/complète au besoin.
+
+ashby_palette <- c(
+  # --- Métaux (bleus)
+  "Ferrous metal"        = "#FF5E4D", # Rouge capucine
+  "Non ferrous metal"    = "#B82010", # rouge cardinal
+
+  # --- Céramiques & verres (oranges/bruns)
+  "Glasses ceramic"      = "#FFF0BC", # jaune de Naples
+  "Porous ceramic"       = "#F6DC12", # jaune bouton d'or
+  "Technical ceramic"    = "#D1B606", # jaune banane
+
+  # --- Composites (violets)
+  "Metal composites"     = "#7F6AAD", # violet bleuté (différent)
+  "Polymer composites"   = "#9467BD", # violet
+
+  # --- Naturels (bruns déclinés)
+  "Natural"              = "#175732", # vert épinard
+  "Natural bast fibre"   = "#82C46C", # vert amande
+  "Natural leaf fibre"   = "#3AF24B", # vert perroquet
+  "Natural seed fibre"   = "#9EFD38", # vert lime
+
+  # --- Polymères (verts) & élastomères (jaune), mousses (vert clair)
+  "Elastomer polymer"    = "#77B5FE", # Bleu ciel (élastomères)
+  "Thermoplastic polymer"= "#318CE7", # vert chartreuse
+  "Thermoset polymer"    = "#0131B4", # Bleu saphir
+  "Polymer foams"        = "#87E990"  # vert de jade
+)
+
+# Helper pour nettoyer les libellés
+norm_domain <- function(x) stringr::str_squish(as.character(x))
 
 ################################################################################
 # PATHS
 ################################################################################
+
 main_path <- "E:/R/15092025_CARTE_MATERIAUX"
 xlsx_path <- file.path(main_path, "Data/Data and information for engineering materials.xlsx")
 csv_path <- file.path(main_path, "Data/01-08-2025_full_dataset_without_filter.csv")
+
 ################################################################################
 # LECTURE & COLONNES
 ################################################################################
@@ -59,6 +96,7 @@ if (is.na(col_domain)) stop("Colonne 'Domain' introuvable.")
 ################################################################################
 # PRÉPARATION DES BORNES
 ################################################################################
+
 bounds <- df0 %>%
   rename(
     Type    = all_of(col_type),
@@ -98,6 +136,7 @@ bounds_dom <- bounds %>%
 ################################################################################
 # ELLIPSES ORIENTÉES EN LOG (grand axe = segment min→max)
 ################################################################################
+
 ellipse_oriented_log <- function(df, id_cols, width_factor) {
   df %>%
     mutate(
@@ -137,6 +176,22 @@ build_polys <- function(desc, id_cols) {
 }
 ell_polys_type <- build_polys(type_desc, c("Domain","Type"))
 ell_polys_dom  <- build_polys(dom_desc,  c("Domain"))
+
+################################################################################
+# NORMALISATION DES NOMS + PALETTE EFFECTIVE (prend seulement les Domain présents)
+################################################################################
+
+ell_polys_type <- ell_polys_type %>% mutate(Domain = norm_domain(Domain))
+ell_polys_dom  <- ell_polys_dom  %>% mutate(Domain = norm_domain(Domain))
+dom_desc       <- dom_desc       %>% mutate(Domain = norm_domain(Domain))
+type_desc      <- type_desc      %>% mutate(Domain = norm_domain(Domain))
+
+# Palette restreinte aux Domain réellement présents (évite warnings)
+domains_present <- sort(unique(c(ell_polys_dom$Domain, ell_polys_type$Domain)))
+pal_present <- ashby_palette[intersect(names(ashby_palette), domains_present)]
+# Couleurs de secours si un Domain non mappé apparaît
+na_fill  <- "grey80"
+na_color <- "grey40"
 
 ################################################################################
 # LABELS DOMAIN — centres + excentrage (traitillé, couleur Domain)
@@ -194,6 +249,7 @@ guides_sqrtErho <- lapply(S_vals, function(S) {
 ################################################################################
 # CADRAGE (marges paddées en log, ratio libre)
 ################################################################################
+
 x_rng <- range(c(ell_polys_dom$Rho, ell_polys_type$Rho), na.rm = TRUE)
 y_rng <- range(c(ell_polys_dom$E,   ell_polys_type$E),   na.rm = TRUE)
 lx_rng <- log10(x_rng); ly_rng <- log10(y_rng)
@@ -214,7 +270,7 @@ df1 <- df1 %>%
       replace(., . == "", NA) %>%  # Remplace les chaînes vides par NA
       stringr::str_replace_all("[^0-9.]", "") %>%  # Supprime tout sauf chiffres et points
       as.numeric(),  # Convertit en numérique (les chaînes non valides deviennent NA)
-    
+
     # Même nettoyage pour masse.vol
     `masse.vol` = as.character(`masse.vol`) %>%
       replace(., . == "", NA) %>%
@@ -223,40 +279,33 @@ df1 <- df1 %>%
   )
 
 # Vérification des NA après nettoyage
-summary(df1$MOE)       # Doit montrer des valeurs numériques et des NA
-summary(df1$`masse.vol`)  # Idem
+summary(df1$MOE)
+summary(df1$`masse.vol`)
 
 # Filtrer les lignes où MOE ou masse.vol sont NA
 df1_clean <- df1 %>%
   filter(!is.na(MOE) & !is.na(`masse.vol`))
 
-# Vérification du nombre de lignes restantes
-nrow(df1_clean)  # Doit être > 0 si des données valides existent
-head(df1_clean)  # Aperçu des données nettoyées
-
 # Conversion des unités (sans risque de NA, car déjà filtrés)
 df_points <- df1_clean %>%
   mutate(
-    MOE_GPa = MOE / 1000,               # MPa → GPa
-    masse_vol_Mg_m3 = `masse.vol` / 1000  # kg/m³ → Mg/m³
+    MOE_GPa = MOE / 1000,                  # MPa → GPa
+    masse_vol_Mg_m3 = `masse.vol` / 1000   # kg/m³ → Mg/m³
   )
 
-# Vérification finale
-nrow(df_points)  # Doit être égal à nrow(df1_clean)
-head(df_points)  # Aperçu des données converties
+################################################################################
+# PLOT PRINCIPAL
+################################################################################
 
-################################################################################
-# PLOT
-################################################################################
 p <- ggplot() +
-  
+
   # Ellipses Type — petites “pastilles” blanches bord noir (comme Ashby)
   geom_polygon(
     data = ell_polys_type,
     aes(x = Rho, y = E, group = interaction(Domain, Type)),
     fill = "white", color = "black", linewidth = ellipse_stroke_type, alpha = 1
   ) +
-  
+
   # Ellipses Domain — grandes zones remplies (couleur par Domain)
   geom_polygon(
     data = ell_polys_dom,
@@ -264,7 +313,7 @@ p <- ggplot() +
     alpha = fill_alpha_domain, linewidth = ellipse_stroke_dom, lineend = "round",
     show.legend = FALSE
   ) +
-  
+
   # Légende in-plot : texte couleur Domain + traitillé (excentré)
   {
     if (has_ggrepel) {
@@ -273,8 +322,8 @@ p <- ggplot() +
         aes(x = Rho_cent, y = E_cent, label = Domain, color = Domain),
         size = label_size_domain, label.size = 0,
         fill = alpha("white", 0.85),
-        box.padding = 0.8, point.padding = 0.8, force = 100,
-        segment.color = "grey40", segment.size = 0.5, segment.linetype = "dashed",
+        box.padding = 4, point.padding = 6, force = 6,
+        segment.color = "black", segment.size = 1, segment.linetype = "dashed",
         min.segment.length = 0.5, max.overlaps = Inf, show.legend = FALSE
       )
     } else {
@@ -293,7 +342,7 @@ p <- ggplot() +
       )
     }
   } +
-  
+
   # Axes LOG–LOG + cadrage
   scale_x_log10(
     breaks = c(0.1, 0.2, 0.5, 1, 2, 5, 10),
@@ -303,8 +352,11 @@ p <- ggplot() +
     breaks = 10^(-3:3),
     labels = trans_format("log10", math_format(10^.x))
   ) +
+  # Palette Ashby appliquée
+  scale_fill_manual(values = pal_present, na.value = na_fill, guide = "none") +
+  scale_color_manual(values = pal_present, na.value = na_color, guide = "none") +
   coord_cartesian(xlim = xlim, ylim = ylim, expand = FALSE, clip = "off") +
-  
+
   labs(
     x = expression(rho~"(Mg/"*m^3*")"),
     y = "Young's modulus, E (GPa)",
@@ -312,7 +364,7 @@ p <- ggplot() +
   ) +
   theme_classic(base_size = base_text_size) +
   theme(
-    axis.line = element_line(linewidth = 0.6, colour = "black"),  # barres x et y
+    axis.line = element_line(linewidth = 0.6, colour = "black"),
     axis.ticks = element_line(colour = "black"),
     axis.ticks.length = grid::unit(4, "pt"),
     legend.position = "none",
@@ -325,9 +377,9 @@ p <- p +
     data = df_points,
     aes(x = masse_vol_Mg_m3, y = MOE_GPa),
     color = "red",
-    size = 2,          # Taille des points (ajustable)
-    alpha = 0.7,       # Transparence (optionnel)
-    shape = 16         # Forme des points (16 = cercle plein)
+    size = 2,
+    alpha = 0.7,
+    shape = 16
   )
 
 print(p)
@@ -345,7 +397,7 @@ ggsave(file.path(main_path, "ashby_style_E_vs_rho.png"),
 sel_domains <- c("Natural", "Natural bast fibre", "Natural leaf fibre", "Natural seed fibre")
 
 # (robuste aux espaces parasites)
-bounds_clean <- bounds %>% mutate(Domain = stringr::str_squish(as.character(Domain)))
+bounds_clean <- bounds %>% mutate(Domain = norm_domain(Domain))
 
 # Sous-ensemble Domain ∈ {bast, leaf, seed}
 bounds_sel <- bounds_clean %>% filter(Domain %in% sel_domains)
@@ -366,12 +418,12 @@ bounds_dom_sel <- bounds_sel %>%
 type_desc_sel <- ellipse_oriented_log(bounds_sel,     id_cols = c("Domain","Type"), width_factor = width_factor_type)
 dom_desc_sel  <- ellipse_oriented_log(bounds_dom_sel, id_cols = c("Domain"),        width_factor = width_factor_domain)
 
-ell_polys_type_sel <- build_polys(type_desc_sel, c("Domain","Type"))
-ell_polys_dom_sel  <- build_polys(dom_desc_sel,  c("Domain"))
+ell_polys_type_sel <- build_polys(type_desc_sel, c("Domain","Type")) %>% mutate(Domain = norm_domain(Domain))
+ell_polys_dom_sel  <- build_polys(dom_desc_sel,  c("Domain"))        %>% mutate(Domain = norm_domain(Domain))
 
 # Labels (types + domain)
-type_labels_sel <- type_desc_sel %>% mutate(Rho_cent = 10^cx, E_cent = 10^cy)
-dom_labels_sel  <- dom_desc_sel  %>% mutate(Rho_cent = 10^cx, E_cent = 10^cy)
+type_labels_sel <- type_desc_sel %>% mutate(Domain = norm_domain(Domain), Rho_cent = 10^cx, E_cent = 10^cy)
+dom_labels_sel  <- dom_desc_sel  %>% mutate(Domain = norm_domain(Domain), Rho_cent = 10^cx, E_cent = 10^cy)
 
 # Limites (couvrent: 3 Domain + tes points)
 lims <- {
@@ -382,30 +434,20 @@ lims <- {
        ylim = 10^(c(ly[1]-pad_mult*ys, ly[2]+pad_mult*ys)))
 }
 
-# (facultatif) guides restants : c et E/ρ ; pas de √E/ρ
-rho_seq_sel <- 10^seq(log10(min(lims$xlim)), log10(max(lims$xlim)), length.out = 200)
-guides_c <- dplyr::bind_rows(
-  tibble::tibble(group="c=100 m/s",  Rho=rho_seq_sel, E=rho_seq_sel*(1e2^2)*1e-6),
-  tibble::tibble(group="c=1000 m/s", Rho=rho_seq_sel, E=rho_seq_sel*(1e3^2)*1e-6),
-  tibble::tibble(group="c=10000 m/s",Rho=rho_seq_sel, E=rho_seq_sel*(1e4^2)*1e-6)
-)
-guides_Erho <- dplyr::bind_rows(
-  tibble::tibble(group="E/rho=0.1", Rho=rho_seq_sel, E=0.1*rho_seq_sel),
-  tibble::tibble(group="E/rho=1",   Rho=rho_seq_sel, E=1.0*rho_seq_sel),
-  tibble::tibble(group="E/rho=10",  Rho=rho_seq_sel, E=10.0*rho_seq_sel),
-  tibble::tibble(group="E/rho=100", Rho=rho_seq_sel, E=100.0*rho_seq_sel)
-)
+# Palette restreinte aux Domain présents sur ce sous-plot
+domains_present_sel <- sort(unique(c(ell_polys_dom_sel$Domain, ell_polys_type_sel$Domain)))
+pal_present_sel <- ashby_palette[intersect(names(ashby_palette), domains_present_sel)]
 
 # ==== PLOT ====
 p_sel <- ggplot() +
-  
+
   # Ellipses Type (petites pastilles blanches, bord noir)
   geom_polygon(
     data = ell_polys_type_sel,
     aes(x = Rho, y = E, group = interaction(Domain, Type)),
     fill = "white", color = "black", linewidth = ellipse_stroke_type, alpha = 1
   ) +
-  
+
   # Grandes ellipses par Domain (remplies, une parmis 3)
   geom_polygon(
     data = ell_polys_dom_sel,
@@ -413,7 +455,7 @@ p_sel <- ggplot() +
     alpha = fill_alpha_domain, linewidth = ellipse_stroke_dom, lineend = "round",
     show.legend = FALSE
   ) +
-  
+
   # Labels des Types (avec traits pointillés)
   {
     if (has_ggrepel) {
@@ -422,8 +464,8 @@ p_sel <- ggplot() +
         aes(x = Rho_cent, y = E_cent, label = Type),
         size = 4.2, label.size = 0,
         fill = alpha("white", 0.88), color = "black",
-        box.padding = 0.6, point.padding = 0.6, force = 70,
-        segment.color = "grey35", segment.size = 0.5, segment.linetype = "dashed",
+        box.padding = 3, point.padding = 5, force = 5,
+        segment.color = "grey35", segment.size = 0.6, segment.linetype = "dashed",
         min.segment.length = 0.5, max.overlaps = Inf, show.legend = FALSE
       )
     } else {
@@ -431,42 +473,44 @@ p_sel <- ggplot() +
                 size = 4.2, color = "black")
     }
   } +
-  
+
   # (Option) Labels des Domain — commente si tu ne veux pas ces étiquettes
   {
     if (has_ggrepel) {
       ggrepel::geom_label_repel(
         data = dom_labels_sel,
         aes(x = Rho_cent, y = E_cent, label = Domain, color = Domain),
-        size = 5.0, label.size = 0,
+        size = 8.0, label.size = 0,
         fill = alpha("white", 0.85),
-        box.padding = 0.8, point.padding = 0.8, force = 50,
-        segment.color = "grey50", segment.size = 0.4, segment.linetype = "dashed",
+        box.padding = 1, point.padding = 2, force = 2,
+        segment.color = "black", segment.size = 0.6, segment.linetype = "dashed",
         min.segment.length = 0.5, max.overlaps = Inf, show.legend = FALSE
       )
     }
   } +
-  
+
   # Tes points palmiers
   geom_point(
     data = df_points,
     aes(x = masse_vol_Mg_m3, y = MOE_GPa),
     color = "red", size = 2, alpha = 0.7, shape = 16
   ) +
-  
+
   # Axes log + cadrage
   scale_x_log10(breaks = c(0.1, 0.2, 0.5, 1, 2, 5, 10), labels = scales::label_number(accuracy = 0.1)) +
   scale_y_log10(breaks = 10^(-3:3), labels = scales::trans_format("log10", scales::math_format(10^.x))) +
+  # Palette Ashby appliquée
+  scale_fill_manual(values = pal_present_sel, na.value = na_fill, guide = "none") +
+  scale_color_manual(values = pal_present_sel, na.value = na_color, guide = "none") +
   coord_cartesian(xlim = lims$xlim, ylim = lims$ylim, expand = FALSE, clip = "off") +
   labs(
     x = expression(rho~"(Mg/"*m^3*")"),
     y = "Young's modulus, E (GPa)",
     title = 'Young’s modulus vs Density (style Ashby) with only natural material'
   ) +
-  # remplace ce bloc de thème sur chaque plot (p_nat, p_sel, etc.)
   theme_classic(base_size = base_text_size) +
   theme(
-    axis.line = element_line(linewidth = 0.6, colour = "black"),  # barres x et y
+    axis.line = element_line(linewidth = 0.6, colour = "black"),
     axis.ticks = element_line(colour = "black"),
     axis.ticks.length = grid::unit(4, "pt"),
     legend.position = "none",
